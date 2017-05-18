@@ -1,8 +1,12 @@
 ﻿using System.Collections;
 using System.Collections.Generic;
+using System.Linq;
+using System.Text;
+using System;
 using UnityEngine;
 using UnityEngine.SceneManagement;
 using UnityEngine.UI;
+using UnityEngine.Windows.Speech;
 
 public class GameController : MonoBehaviour {
     public int maxSize;
@@ -10,6 +14,7 @@ public class GameController : MonoBehaviour {
     public int xBound;
     public int yBound;
     public int score;
+    public int fruitScore;
     public GameObject foodPrefab;
     public GameObject currFood;
     public GameObject snakePrefab;
@@ -18,6 +23,12 @@ public class GameController : MonoBehaviour {
     public Snake tail;
     public int direction;
     public Vector2 nextPos;
+    public float repTime;
+
+    private int hitCount = 0;
+    private KeywordRecognizer kr;
+    private Dictionary<string, System.Action> keywords = new Dictionary<string, System.Action>();
+    private string[] test = { "left", "right", "up", "down", "l", "u", "d", "r","you"};
 
     void OnEnable()
     {
@@ -26,23 +37,85 @@ public class GameController : MonoBehaviour {
 
 	// Use this for initialization
 	void Start () {
-        InvokeRepeating("Timer", 0, .5f);
+        InvokeRepeating("Timer", 0, repTime);
+        InvokeRepeating("ChangeDifficulty", 0, 5.0f);
         SpawnFood();
-	}
+        keywords.Add("up", () =>
+        {
+            DireChange(0);
+        });
+        keywords.Add("down", () =>
+        {
+            DireChange(2);
+        });
+        keywords.Add("left", () =>
+        {
+            DireChange(3);
+        });
+        keywords.Add("right", () =>
+        {
+            DireChange(1);
+        });
+
+        //kr = new KeywordRecognizer(keywords.Keys.ToArray());
+        kr = new KeywordRecognizer(test);
+        kr.OnPhraseRecognized += KeywordRecognizerOnPhraseRecognized;
+        kr.Start();
+    }
+
+    void KeywordRecognizerOnPhraseRecognized(PhraseRecognizedEventArgs args)
+    {
+        StringBuilder builder = new StringBuilder();
+        builder.AppendFormat("{0} ({1}){2}", args.text, args.confidence, Environment.NewLine);
+        builder.AppendFormat("\tTimestamp: {0}{1}", args.phraseStartTime, Environment.NewLine);
+        builder.AppendFormat("\tDuration: {0} seconds{1}", args.phraseDuration.TotalSeconds, Environment.NewLine);
+        Debug.Log(builder.ToString());
+
+        Action keywordAction;
+
+        if (keywords.TryGetValue(args.text, out keywordAction))
+        {
+            keywordAction.Invoke();
+        }
+    }
 
     void OnDisable()
     {
         Snake.hit -= Hit;
     }
 
+    void ChangeDifficulty()
+    {
+        if (hitCount == 0)
+        {
+            repTime += 0.05f;
+            fruitScore -= 1;
+        }
+
+        else
+        {
+            fruitScore += 1;
+        }
+
+        hitCount = 0;
+    }
+
     // Update is called once per frame
     void Update () {
-        DireChange();
+        //DireChange();
         curScore.text = score.ToString();
         if (head.transform.position.x > xBound || head.transform.position.x < -xBound || head.transform.position.y > yBound || head.transform.position.y < -yBound)
         {
             Warp();
         }
+        if (Input.GetKeyDown(KeyCode.W))
+            DireChange(0);
+        if (Input.GetKeyDown(KeyCode.D))
+            DireChange(1);
+        if (Input.GetKeyDown(KeyCode.S))
+            DireChange(2);
+        if (Input.GetKeyDown(KeyCode.A))
+            DireChange(3);
     }
 
     void Timer()
@@ -85,15 +158,15 @@ public class GameController : MonoBehaviour {
         //return;
     }
 
-    void DireChange()
+    void DireChange(int dire)
     {
-        if (direction != 2 && Input.GetKeyDown(KeyCode.W))
+        if (direction != 2 && dire == 0)
             direction = 0;
-        if (direction != 0 && Input.GetKeyDown(KeyCode.S))
+        if (direction != 0 && dire == 2)
             direction = 2;
-        if (direction != 1 && Input.GetKeyDown(KeyCode.A))
+        if (direction != 1 && dire == 3)
             direction = 3;
-        if (direction != 3 && Input.GetKeyDown(KeyCode.D))
+        if (direction != 3 && dire == 1)
             direction = 1;
     }
 
@@ -106,8 +179,8 @@ public class GameController : MonoBehaviour {
 
     void SpawnFood()
     {
-        int xPos = Random.Range(-xBound, xBound);
-        int yPos = Random.Range(-yBound, yBound);
+        int xPos = UnityEngine.Random.Range(-xBound+2, xBound-2);
+        int yPos = UnityEngine.Random.Range(-yBound+2, yBound-2);
         currFood = (GameObject)Instantiate(foodPrefab, new Vector2(xPos, yPos), transform.rotation);
         StartCoroutine(CheckRenderer(currFood));
     }
@@ -130,7 +203,16 @@ public class GameController : MonoBehaviour {
         {
             SpawnFood();
             maxSize++;
-            score++;
+            hitCount++;
+            score += fruitScore;
+            if (repTime >= 0.1f)
+            {
+                repTime = repTime - 0.05f;
+                CancelInvoke("Timer");
+                InvokeRepeating("Timer", 0, repTime);
+
+            }
+
         }
         if (msg == "snake")
         {
